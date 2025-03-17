@@ -6,6 +6,8 @@ import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory; // Replaced deprecated JacksonFactory with GsonFactory
 import com.pingpals.pingpals.Model.User;
 import com.pingpals.pingpals.Service.UserService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -19,15 +21,14 @@ import java.util.Map;
 @RequestMapping("/auth")
 public class AuthController {
 
+    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
     private final UserService userService;
-
-    @Value("${google.clientId}")
-    private String CLIENT_ID;  // Injected from application.properties
+    private final String googleClientId;
 
     @Autowired
-    public AuthController(UserService userService, @Value("${google.clientId}") String clientId) {
+    public AuthController(UserService userService, @Value("${google.clientId}") String googleClientId) {
         this.userService = userService;
-        this.CLIENT_ID = clientId;
+        this.googleClientId = googleClientId;
     }
 
     @PostMapping("/google")
@@ -37,7 +38,7 @@ public class AuthController {
         try {
             GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
                     GoogleNetHttpTransport.newTrustedTransport(), GsonFactory.getDefaultInstance())
-                    .setAudience(Collections.singletonList(CLIENT_ID))  // Using the CLIENT_ID injected from properties
+                    .setAudience(Collections.singletonList(googleClientId))  // Using the googleClientId injected from properties
                     .build();
 
             GoogleIdToken idToken = verifier.verify(idTokenString);
@@ -55,16 +56,22 @@ public class AuthController {
                 String accessToken = userService.generateTokenForUser(user); // Access Token
                 String refreshToken = userService.generateRefreshTokenForUser(user); // Refresh Token
 
+                // Log the user ID and tokens for debugging
+                logger.info("Authentication successful for user ID: {}", user.getId());
+                logger.info("Generated access token: {}", accessToken);
+                logger.info("Generated refresh token: {}", refreshToken);
+
                 // Return both access and refresh tokens
                 Map<String, String> response = new HashMap<>();
                 response.put("accessToken", accessToken);
                 response.put("refreshToken", refreshToken);
                 return ResponseEntity.ok(response);
             } else {
+                logger.error("Invalid ID token provided during authentication attempt");
                 return ResponseEntity.status(401).body("Invalid ID token.");
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Authentication error: ", e);
             return ResponseEntity.status(500).body("An error occurred.");
         }
     }
@@ -78,13 +85,18 @@ public class AuthController {
             // Validate and parse the refresh token to generate a new access token
             String newAccessToken = userService.refreshAccessToken(refreshToken);
             if (newAccessToken != null) {
+                // Log the new access token
+                logger.info("Generated new access token from refresh token: {}", newAccessToken);
+
                 Map<String, String> response = new HashMap<>();
                 response.put("accessToken", newAccessToken);
                 return ResponseEntity.ok(response);
             } else {
+                logger.error("Invalid refresh token attempt");
                 return ResponseEntity.status(401).body("Invalid refresh token.");
             }
         } catch (Exception e) {
+            logger.error("Error refreshing token: ", e);
             return ResponseEntity.status(500).body("An error occurred while refreshing the token.");
         }
     }
