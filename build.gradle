@@ -13,6 +13,18 @@ java {
     }
 }
 
+// Explicitly define mainClass and executable JAR properties
+springBoot {
+    mainClass = 'com.pingpals.pingpals.PingpalsApplication'
+}
+
+bootJar {
+    archiveFileName = 'app.jar'
+    manifest {
+        attributes 'Start-Class': 'com.pingpals.pingpals.PingpalsApplication'
+    }
+}
+
 configurations {
     compileOnly {
         extendsFrom annotationProcessor

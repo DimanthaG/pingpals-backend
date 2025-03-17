@@ -1,4 +1,8 @@
-FROM eclipse-temurin:17-jdk AS build
+FROM eclipse-temurin:17-jdk-alpine AS build
+
+# Install necessary build tools
+RUN apk add --no-cache bash
+
 WORKDIR /workspace/app
 
 # Copy gradle configuration
@@ -7,32 +11,31 @@ COPY gradlew .
 COPY settings.gradle .
 COPY build.gradle .
 
-# Download dependencies
+# Ensure the script is executable
 RUN chmod +x ./gradlew
-RUN ./gradlew dependencies
+
+# Download dependencies - separate step to leverage Docker layer caching
+RUN ./gradlew dependencies --no-daemon
 
 # Copy the source code
 COPY src src
 
-# Build the application
-RUN ./gradlew clean bootJar
-RUN mkdir -p build/dependency && (cd build/dependency; jar -xf ../libs/*.jar)
+# Build the application with more verbose output
+RUN ./gradlew bootJar --no-daemon --info
 
-# Final stage: only use the JRE and the built JAR
+# Use a lightweight runtime image
 FROM eclipse-temurin:17-jre-alpine
-ARG DEPENDENCY=/workspace/app/build/dependency
 
-# Create directory for the app
 WORKDIR /app
 
-# Copy the dependency application layer by layer
-COPY --from=build ${DEPENDENCY}/BOOT-INF/lib /app/lib
-COPY --from=build ${DEPENDENCY}/META-INF /app/META-INF
-COPY --from=build ${DEPENDENCY}/BOOT-INF/classes /app
+# Copy the built JAR from the build stage
+COPY --from=build /workspace/app/build/libs/*.jar app.jar
 
-# Expose the port the app runs on
+# Environment variables
 ENV PORT=8080
+
+# Expose the port
 EXPOSE ${PORT}
 
-# Run the application
-ENTRYPOINT ["java", "-cp", ".:lib/*", "com.pingpals.pingpals.PingpalsApplication"]
+# Run the application with environment variables support
+ENTRYPOINT ["java", "-Dspring.profiles.active=prod", "-jar", "app.jar"]
