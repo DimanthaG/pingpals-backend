@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -49,18 +50,30 @@ public class AuthController {
                 GoogleIdToken.Payload googlePayload = idToken.getPayload();
 
                 // Log the audience and authorized party for debugging
-                String audience = googlePayload.getAudience();
+                // Handle both String and Collection return types from getAudience()
+                Object audienceObj = googlePayload.getAudience();
                 String azp = (String) googlePayload.get("azp");
-                logger.info("Token audience: {}, azp: {}", audience, azp);
                 
-                // Check if either audience or azp matches our client ID
-                boolean validAudience = googleClientId.equals(audience);
+                boolean validAudience = false;
+                
+                // Handle different types of audience values
+                if (audienceObj instanceof String) {
+                    validAudience = googleClientId.equals((String) audienceObj);
+                    logger.info("Token audience (string): {}, azp: {}", audienceObj, azp);
+                } else if (audienceObj instanceof Collection<?>) {
+                    Collection<?> audiences = (Collection<?>) audienceObj;
+                    validAudience = audiences.contains(googleClientId);
+                    logger.info("Token audiences (collection): {}, azp: {}", audiences, azp);
+                } else {
+                    logger.warn("Unknown audience type: {}", audienceObj != null ? audienceObj.getClass().getName() : "null");
+                }
+                
                 boolean validAzp = azp != null && googleClientId.equals(azp);
                 
                 // Accept token if either audience or azp match
                 if (!validAudience && !validAzp) {
                     logger.error("Invalid token: neither audience ({}) nor azp ({}) match client ID ({})", 
-                                audience, azp, googleClientId);
+                                audienceObj, azp, googleClientId);
                     return ResponseEntity.status(401).body("Invalid ID token.");
                 }
                 
