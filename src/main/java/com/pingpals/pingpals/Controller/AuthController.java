@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -36,14 +37,35 @@ public class AuthController {
         String idTokenString = payload.get("idToken");
 
         try {
+            logger.info("Processing Google sign-in request with token length: {}", idTokenString != null ? idTokenString.length() : 0);
+            
+            // Create a verifier without audience restriction - we'll verify audience manually
             GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
                     GoogleNetHttpTransport.newTrustedTransport(), GsonFactory.getDefaultInstance())
-                    .setAudience(Collections.singletonList(googleClientId))  // Using the googleClientId injected from properties
                     .build();
 
             GoogleIdToken idToken = verifier.verify(idTokenString);
             if (idToken != null) {
                 GoogleIdToken.Payload googlePayload = idToken.getPayload();
+
+                // Log the audience and authorized party for debugging
+                String audience = googlePayload.getAudience();
+                String azp = (String) googlePayload.get("azp");
+                logger.info("Token audience: {}, azp: {}", audience, azp);
+                
+                // Check if either audience or azp matches our client ID
+                boolean validAudience = googleClientId.equals(audience);
+                boolean validAzp = azp != null && googleClientId.equals(azp);
+                
+                // Accept token if either audience or azp match
+                if (!validAudience && !validAzp) {
+                    logger.error("Invalid token: neither audience ({}) nor azp ({}) match client ID ({})", 
+                                audience, azp, googleClientId);
+                    return ResponseEntity.status(401).body("Invalid ID token.");
+                }
+                
+                logger.info("Token validation successful: audience match = {}, azp match = {}", 
+                           validAudience, validAzp);
 
                 String googleId = googlePayload.getSubject();
                 String email = googlePayload.getEmail();
@@ -72,7 +94,7 @@ public class AuthController {
             }
         } catch (Exception e) {
             logger.error("Authentication error: ", e);
-            return ResponseEntity.status(500).body("An error occurred.");
+            return ResponseEntity.status(500).body("An error occurred: " + e.getMessage());
         }
     }
 
