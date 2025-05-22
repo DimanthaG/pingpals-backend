@@ -18,6 +18,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 
 @RestController
 @RequestMapping("/auth")
@@ -25,12 +27,27 @@ public class AuthController {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
     private final UserService userService;
-    private final String googleClientId;
+    private final String androidClientId;
+    private final String iosClientId;
+    private final List<String> validClientIds;
 
     @Autowired
-    public AuthController(UserService userService, @Value("${google.clientId}") String googleClientId) {
+    public AuthController(UserService userService, 
+                        @Value("${google.clientId}") String androidClientId,
+                        @Value("${google.clientId.ios:#{null}}") String iosClientId) {
         this.userService = userService;
-        this.googleClientId = googleClientId;
+        this.androidClientId = androidClientId;
+        this.iosClientId = iosClientId;
+        
+        // Create a list of valid client IDs
+        this.validClientIds = new ArrayList<>();
+        this.validClientIds.add(androidClientId);
+        if (iosClientId != null && !iosClientId.isEmpty()) {
+            this.validClientIds.add(iosClientId);
+        }
+        
+        logger.info("AuthController initialized with Android client ID: {}", androidClientId);
+        logger.info("AuthController initialized with iOS client ID: {}", iosClientId);
     }
 
     @PostMapping("/google")
@@ -54,26 +71,32 @@ public class AuthController {
                 Object audienceObj = googlePayload.getAudience();
                 String azp = (String) googlePayload.get("azp");
                 
+                logger.info("Token audience (string): {}, azp: {}", audienceObj, azp);
+                
                 boolean validAudience = false;
                 
                 // Handle different types of audience values
                 if (audienceObj instanceof String) {
-                    validAudience = googleClientId.equals((String) audienceObj);
-                    logger.info("Token audience (string): {}, azp: {}", audienceObj, azp);
+                    String audience = (String) audienceObj;
+                    validAudience = validClientIds.contains(audience);
                 } else if (audienceObj instanceof Collection<?>) {
                     Collection<?> audiences = (Collection<?>) audienceObj;
-                    validAudience = audiences.contains(googleClientId);
-                    logger.info("Token audiences (collection): {}, azp: {}", audiences, azp);
+                    for (String validClientId : validClientIds) {
+                        if (audiences.contains(validClientId)) {
+                            validAudience = true;
+                            break;
+                        }
+                    }
                 } else {
                     logger.warn("Unknown audience type: {}", audienceObj != null ? audienceObj.getClass().getName() : "null");
                 }
                 
-                boolean validAzp = azp != null && googleClientId.equals(azp);
+                boolean validAzp = azp != null && validClientIds.contains(azp);
                 
-                // Accept token if either audience or azp match
+                // Accept token if either audience or azp match any of our valid client IDs
                 if (!validAudience && !validAzp) {
-                    logger.error("Invalid token: neither audience ({}) nor azp ({}) match client ID ({})", 
-                                audienceObj, azp, googleClientId);
+                    logger.error("Invalid token: neither audience ({}) nor azp ({}) match client IDs (Android: {}, iOS: {})", 
+                                audienceObj, azp, androidClientId, iosClientId);
                     return ResponseEntity.status(401).body("Invalid ID token.");
                 }
                 
