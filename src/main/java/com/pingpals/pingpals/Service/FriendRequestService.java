@@ -23,6 +23,9 @@ public class FriendRequestService {
 
     @Autowired
     private UserRepository userRepository;
+    
+    @Autowired
+    private NotificationService notificationService;
 
     // Get the authenticated user ID
     private String getAuthenticatedUserId() {
@@ -45,6 +48,10 @@ public class FriendRequestService {
         User receiver = userRepository.findByEmail(emailOrUsername)
                 .orElseThrow(() -> new RuntimeException("Receiver not found: " + emailOrUsername));
         String senderId = getAuthenticatedUserId();
+        
+        // Get sender details for notification
+        User sender = userRepository.findById(senderId)
+                .orElseThrow(() -> new RuntimeException("Sender not found: " + senderId));
 
         Optional<FriendRequest> existingRequestOptional = friendRequestRepository.findBySenderAndReceiver(senderId, receiver.getId());
         if (((Optional<?>) existingRequestOptional).isPresent()) {
@@ -55,6 +62,9 @@ public class FriendRequestService {
                 existingRequest.setIssuedTime(LocalDateTime.now());
                 friendRequestRepository.save(existingRequest);
                 System.out.println("Friend request re-sent to user: " + receiver.getId());
+                
+                // Send notification for the re-sent request
+                notificationService.sendFriendRequestNotification(receiver.getId(), sender.getName());
                 return;
             } else {
                 throw new RuntimeException("Friend request already sent to this user.");
@@ -64,6 +74,9 @@ public class FriendRequestService {
         FriendRequest friendRequest = new FriendRequest(null, senderId, receiver.getId(), LocalDateTime.now(), FriendRequestStatus.PENDING);
         friendRequestRepository.save(friendRequest);
         System.out.println("Friend request created from sender ID: " + senderId + " to receiver ID: " + receiver.getId());
+        
+        // Send notification to receiver
+        notificationService.sendFriendRequestNotification(receiver.getId(), sender.getName());
     }
 
 
@@ -108,6 +121,9 @@ public class FriendRequestService {
         friendRequestRepository.delete(friendRequest); // Remove the friend request after acceptance
 
         System.out.println("Friend request accepted and removed: " + friendRequestId);
+        
+        // Send notification to the sender that their request was accepted
+        notificationService.sendFriendRequestAcceptedNotification(sender.getId(), receiver.getName());
 
         // Return updated friend list for the receiver (authenticated user)
         return userRepository.findAllById(receiver.getFriends());
